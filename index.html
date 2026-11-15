@@ -537,7 +537,7 @@ input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-
    Every request carries  Authorization: Bearer <partner token>
    ================================================================= */
 const CONFIG = {
-  N8N_BASE: 'https://n8n.srv1285921.hstgr.cloud/webhook-test/partner/deals',                     // e.g. 'https://n8n.ivoiceup.com/webhook'
+  N8N_BASE: 'https://n8n.srv1285921.hstgr.cloud/webhook-test',                     // e.g. 'https://n8n.ivoiceup.com/webhook'
   getToken: () => { try { return localStorage.getItem('ivu_partner_token') || ''; } catch(e){ return ''; } },
   TIERS: [ // ARR thresholds & margin
     { name:'Silver',   min:0,      margin:.25 },
