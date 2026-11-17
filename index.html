@@ -255,6 +255,28 @@ input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-
 .toast i{color:#6fd39b}
 .toast.err i{color:#ff8a80}
 
+/* Signed-in partner (top bar) */
+.who{min-width:0}
+.who b{display:block;font-size:14px;font-weight:600;line-height:1.25;color:var(--text-strong);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who small{display:block;font-family:var(--mono);font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Login screen */
+.login{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--n25)}
+.login[hidden]{display:none}
+.login-card{width:100%;max-width:420px;padding:36px 32px 32px}
+.login-card img{height:28px;width:auto;display:block}
+.login-card .eyebrow{margin-top:14px}
+.login-card h2{font-size:26px;margin-top:20px}
+.login-card .lead{margin-top:8px;color:var(--text-muted);font-size:14px}
+.login-card form{display:grid;gap:18px;margin-top:24px}
+.login-card form[hidden]{display:none}
+.login-card .btn-primary{width:100%;height:44px}
+.code-input{font-family:var(--mono);font-size:22px;letter-spacing:.45em;text-align:center}
+.login-links{display:flex;justify-content:space-between;gap:12px}
+.link-btn{background:none;border:0;padding:0;font-size:13px;color:var(--text-muted);text-decoration:underline;cursor:pointer}
+.link-btn:hover{color:var(--text-strong)}
+.login-foot{margin-top:24px;padding-top:16px;border-top:1px solid var(--border)}
+
 /* Responsive */
 @media (max-width:1100px){.grid3{grid-template-columns:1fr 1fr}.kpis{grid-template-columns:1fr 1fr}}
 @media (max-width:860px){
@@ -270,6 +292,42 @@ input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-
 </style>
 </head>
 <body>
+
+<!-- ========== LOGIN ========== -->
+<div class="login" id="login" hidden>
+  <div class="panel login-card">
+    <img id="login-logo" alt="iVoiceUp">
+    <div class="eyebrow">Partner Portal</div>
+
+    <!-- Step 1: email -->
+    <form id="login-email-form" novalidate>
+      <div>
+        <h2 style="margin-top:0">Sign in</h2>
+        <p class="lead">Enter your work email and we'll send you a 6-digit code.</p>
+      </div>
+      <div id="login-alert" class="form-alert" role="alert" hidden></div>
+      <label>Work email<input name="email" type="email" autocomplete="email" required placeholder="name@company.com"></label>
+      <button type="submit" class="btn btn-primary" id="login-email-btn">Send code</button>
+    </form>
+
+    <!-- Step 2: code -->
+    <form id="login-code-form" novalidate hidden>
+      <div>
+        <h2 style="margin-top:0">Check your email</h2>
+        <p class="lead">We sent a code to <b id="login-sent-to" style="color:var(--text-strong)"></b>. It expires in 10 minutes.</p>
+      </div>
+      <div id="login-alert-2" class="form-alert" role="alert" hidden></div>
+      <label>6-digit code<input name="code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required placeholder="••••••"></label>
+      <button type="submit" class="btn btn-primary" id="login-code-btn">Sign in</button>
+      <div class="login-links">
+        <button type="button" class="link-btn" onclick="loginBack()">Use a different email</button>
+        <button type="button" class="link-btn" onclick="resendCode()">Resend code</button>
+      </div>
+    </form>
+
+    <p class="fine login-foot">Access is limited to registered iVoiceUp partners. Need access? Contact your iVoiceUp channel manager.</p>
+  </div>
+</div>
 
 <!-- ========== SIDEBAR ========== -->
 <aside class="sidebar">
@@ -299,11 +357,11 @@ input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-
 <main class="main">
   <header class="topbar">
     <div class="pid">
-      <span class="lbl">Partner ID</span>
-      <code id="p-id">IVU-KSA-8842</code>
+      <div class="who"><b id="p-company">—</b><small id="p-email"></small></div>
       <span class="sync" id="sync">Demo data</span>
     </div>
     <div class="top-actions">
+      <button class="icon-btn" aria-label="Log out" title="Log out" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i></button>
       <button class="icon-btn" aria-label="Refresh from CRM" onclick="loadAll()"><i class="fa-solid fa-rotate"></i></button>
       <button class="icon-btn" aria-label="Notifications"><i class="fa-regular fa-bell"></i></button>
       <button class="btn btn-primary" onclick="openModal()"><i class="fa-solid fa-plus"></i> Register New Deal</button>
@@ -542,10 +600,22 @@ input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-
      POST {N8N_BASE}/partner/deals  -> body = registration payload
                                        returns the created deal
    Every request carries  Authorization: Bearer <partner token>
+
+   LOGIN (no token needed):
+     POST {N8N_BASE}/auth/request-code  body {email}
+          -> {status:"sent"}
+     POST {N8N_BASE}/auth/verify-code   body {email, code}
+          -> {status:"ok", token, email, name, company, companyId}
+          -> {status:"invalid", message}
+   Any request answered with HTTP 401 or {status:"unauthorized"}
+   sends the partner back to the login screen.
    ================================================================= */
 const CONFIG = {
   N8N_BASE: 'https://n8n.srv1285921.hstgr.cloud/webhook-test',   // code adds /partner/deals itself
-  getToken: () => { try { return localStorage.getItem('ivu_partner_token') || ''; } catch(e){ return ''; } },
+  // true  = login is simulated: any email, code 123456 (no n8n needed)
+  // false = login uses the n8n auth/request-code + auth/verify-code workflows
+  DEMO_LOGIN: true,
+  getToken: () => { try { return localStorage.getItem('ivu_partner_token') || (state.session && state.session.token) || ''; } catch(e){ return (state.session && state.session.token) || ''; } },
   TIERS: [ // ARR thresholds & margin
     { name:'Silver',   min:0,      margin:.25 },
     { name:'Gold',     min:50000,  margin:.30 },
@@ -577,7 +647,7 @@ const DEMO = {
   ]
 };
 
-const state = { profile:null, deals:[], live:false };
+const state = { profile:null, deals:[], live:false, session:null };
 const $ = s => document.querySelector(s);
 const usd = n => '$' + Math.round(n).toLocaleString('en-US');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -591,6 +661,10 @@ async function api(path, opts = {}) {
   let body = {};
   try { body = text ? JSON.parse(text) : {}; } catch (e) { body = { message: text }; }
   if (Array.isArray(body) && body.length === 1 && (opts.method === 'POST' || path === '/partner/me')) body = body[0];
+  if (res.status === 401 || (body && body.status === 'unauthorized')) {
+    sessionExpired(body && body.message);
+    const err = new Error('Your session has expired. Please sign in again.'); err.unauthorized = true; throw err;
+  }
   if (!res.ok && !body.status) throw new Error(body.message || 'CRM request failed (' + res.status + ')');
   return body;
 }
@@ -607,6 +681,7 @@ async function loadAll() {
       state.profile = p; state.deals = Array.isArray(d) ? d : (d.deals || []); state.live = true;
       sync.className = 'sync live'; sync.textContent = 'Synced ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
     } catch (e) {
+      if (e.unauthorized) return;   // login screen is already showing
       sync.className = 'sync err'; sync.textContent = 'Sync failed';
       toast(e.message, true);
       if (!state.profile) { state.profile = DEMO.profile; state.deals = DEMO.deals.slice(); }
@@ -637,10 +712,15 @@ function render() {
   $('#year').textContent = year;
 
   // profile
-  $('#p-name').textContent = p.company;
-  $('#p-tier').textContent = `${p.tier} Partner (${p.region})`;
-  $('#p-id').textContent = p.partnerId;
-  $('#p-initials').textContent = p.company.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
+  // Company + email come from the login (HubSpot contact); tier/region from /partner/me
+  const s = state.session || {};
+  const company = s.company || p.company || 'Partner';
+  const email = s.email || p.email || '';
+  $('#p-company').textContent = company;
+  $('#p-email').textContent = email;
+  $('#p-name').textContent = company;
+  $('#p-tier').textContent = p.tier ? `${p.tier} Partner${p.region ? ' (' + p.region + ')' : ''}` : 'Partner';
+  $('#p-initials').textContent = company.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
 
   // KPIs
   const open = deals.filter(d => (STAGES[d.stage] || {open:true}).open);
@@ -753,7 +833,8 @@ $('#deal-form').addEventListener('submit', async e => {
   const f = Object.fromEntries(new FormData(e.target));
   // Payload shape n8n receives -> map to HubSpot deal + company + contact
   const payload = {
-    partnerId: state.profile.partnerId,
+    // For reference only: n8n identifies the partner from the login token, not from this field
+    submittedBy: (state.session && state.session.email) || '',
     deal:    { name: f.company + ' – iVoiceUp', amount: Number(f.amount), closeDate: f.closeDate, notes: f.notes },
     company: { name: f.company, industry: f.sector, country: f.country },
     contact: { name: f.contactName, email: f.contactEmail },
@@ -819,7 +900,141 @@ function toast(msg, err) {
   t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 3500);
 }
 
-loadAll();
+/* =================================================================
+   LOGIN — email + one-time code, then the token is remembered
+   ================================================================= */
+const SESSION_KEY = 'ivu_partner_session';
+let pendingEmail = '';
+
+function getSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    return s && s.token && localStorage.getItem('ivu_partner_token') ? s : null;
+  } catch (e) { return null; }
+}
+function saveSession(s) {
+  state.session = s;
+  try { localStorage.setItem('ivu_partner_token', s.token); localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (e) {}
+}
+function clearSession() {
+  state.session = null;
+  try { localStorage.removeItem('ivu_partner_token'); localStorage.removeItem(SESSION_KEY); } catch (e) {}
+}
+
+async function authCall(path, body) {
+  if (CONFIG.DEMO_LOGIN || !CONFIG.N8N_BASE) {          // simulated login for testing
+    await new Promise(r => setTimeout(r, 600));
+    if (path === '/auth/request-code') return { status:'sent' };
+    return body.code === '123456'
+      ? { status:'ok', token:'demo-' + Date.now(), email:body.email, name:'Demo User', company:DEMO.profile.company }
+      : { status:'invalid', message:'Wrong code. In demo mode the code is 123456.' };
+  }
+  const res = await fetch(CONFIG.N8N_BASE + path, {
+    method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body)
+  });
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { message: text }; }
+  if (Array.isArray(data)) data = data[0] || {};
+  if (!res.ok && !data.status) throw new Error(data.message || 'Login service unavailable (' + res.status + ')');
+  return data;
+}
+
+function loginAlert(id, msg, kind = 'danger') {
+  const a = $(id);
+  if (!msg) { a.hidden = true; a.innerHTML = ''; return; }
+  a.className = 'form-alert ' + kind;
+  a.innerHTML = `<i class="fa-solid ${kind === 'warn' ? 'fa-circle-info' : 'fa-circle-exclamation'}"></i><div><span>${esc(msg)}</span></div>`;
+  a.hidden = false;
+}
+
+function showLogin(message) {
+  closeModal();
+  $('#login').hidden = false;
+  $('#login-code-form').hidden = true;
+  $('#login-email-form').hidden = false;
+  loginAlert('#login-alert-2', '');
+  loginAlert('#login-alert', message || '', 'warn');
+  setTimeout(() => $('#login-email-form [name=email]').focus(), 50);
+}
+function hideLogin() { $('#login').hidden = true; }
+
+function sessionExpired(message) {
+  clearSession();
+  state.profile = null; state.deals = [];
+  showLogin(message || 'Your session has expired. Please sign in again.');
+}
+
+function logout() {
+  // Optional later: call an n8n "auth/logout" webhook to clear the token in HubSpot too
+  clearSession();
+  state.profile = null; state.deals = [];
+  $('#login-email-form').reset(); $('#login-code-form').reset();
+  showLogin();
+}
+
+function loginBack() {
+  $('#login-code-form').reset();
+  showLogin();
+  $('#login-email-form [name=email]').value = pendingEmail;
+}
+
+async function resendCode() {
+  if (!pendingEmail) return loginBack();
+  loginAlert('#login-alert-2', '');
+  try {
+    await authCall('/auth/request-code', { email: pendingEmail });
+    loginAlert('#login-alert-2', 'A new code is on its way.', 'warn');
+  } catch (err) { loginAlert('#login-alert-2', err.message); }
+}
+
+$('#login-email-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = e.target.email.value.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { loginAlert('#login-alert', 'Please enter a valid email address.'); return; }
+  const btn = $('#login-email-btn'); btn.disabled = true; btn.textContent = 'Sending…';
+  loginAlert('#login-alert', '');
+  try {
+    await authCall('/auth/request-code', { email });
+    pendingEmail = email;
+    $('#login-sent-to').textContent = email;
+    $('#login-email-form').hidden = true;
+    $('#login-code-form').hidden = false;
+    loginAlert('#login-alert-2', CONFIG.DEMO_LOGIN ? 'Demo mode: use code 123456.' : '', 'warn');
+    setTimeout(() => $('#login-code-form [name=code]').focus(), 50);
+  } catch (err) { loginAlert('#login-alert', err.message); }
+  finally { btn.disabled = false; btn.textContent = 'Send code'; }
+});
+
+$('#login-code-form [name=code]').addEventListener('input', e => {
+  e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+});
+
+$('#login-code-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const code = e.target.code.value.trim();
+  if (!/^\d{6}$/.test(code)) { loginAlert('#login-alert-2', 'Enter the 6-digit code from the email.'); return; }
+  const btn = $('#login-code-btn'); btn.disabled = true; btn.textContent = 'Checking…';
+  loginAlert('#login-alert-2', '');
+  try {
+    const res = await authCall('/auth/verify-code', { email: pendingEmail, code });
+    if (res.status === 'ok' && res.token) {
+      saveSession({ token: res.token, email: res.email || pendingEmail, name: res.name || '',
+                    company: res.company || '', companyId: res.companyId || '' });
+      e.target.reset(); $('#login-email-form').reset();
+      hideLogin(); switchTab('dashboard'); loadAll();
+    } else {
+      loginAlert('#login-alert-2', res.message || 'Wrong or expired code. Try again or resend a new one.');
+    }
+  } catch (err) { loginAlert('#login-alert-2', err.message); }
+  finally { btn.disabled = false; btn.textContent = 'Sign in'; }
+});
+
+/* ---------- Start ---------- */
+$('#login-logo').src = $('.brand img').src;
+state.session = getSession();
+if (state.session) loadAll();
+else showLogin();
 </script>
 </body>
 </html>
