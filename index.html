@@ -614,7 +614,7 @@ const CONFIG = {
   N8N_BASE: 'https://n8n.srv1285921.hstgr.cloud/webhook-test',   // code adds /partner/deals itself
   // true  = login is simulated: any email, code 123456 (no n8n needed)
   // false = login uses the n8n auth/request-code + auth/verify-code workflows
-  DEMO_LOGIN: true,
+  DEMO_LOGIN: false,
   getToken: () => { try { return localStorage.getItem('ivu_partner_token') || (state.session && state.session.token) || ''; } catch(e){ return (state.session && state.session.token) || ''; } },
   TIERS: [ // ARR thresholds & margin
     { name:'Silver',   min:0,      margin:.25 },
